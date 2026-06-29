@@ -9,7 +9,7 @@ on:
 
 env:
   DOCKER_HUB_USERNAME: ${{ secrets.DOCKER_HUB_USERNAME }}
-  DOCKER_HUB_REPO: ${{ secrets.DOCKER_HUB_REPO || lower(github.event.repository.name) }}
+  DOCKER_HUB_REPO: ${{ secrets.DOCKER_HUB_REPO }}
   IMAGE_TAG: ${{ github.sha }}
 
 jobs:
@@ -44,6 +44,12 @@ jobs:
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set Docker repo name (lowercase)
+        if: env.DOCKER_HUB_REPO == ''
+        run: |
+          REPO="${GITHUB_REPOSITORY#*/}"
+          echo "DOCKER_HUB_REPO=${REPO,,}" >> $GITHUB_ENV
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -80,6 +86,12 @@ jobs:
     needs: build-and-push
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
     steps:
+      - name: Set Docker repo name (lowercase)
+        if: env.DOCKER_HUB_REPO == ''
+        run: |
+          REPO="${GITHUB_REPOSITORY#*/}"
+          echo "DOCKER_HUB_REPO=${REPO,,}" >> $GITHUB_ENV
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
