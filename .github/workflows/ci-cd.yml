@@ -9,7 +9,7 @@ on:
 
 env:
   DOCKER_HUB_USERNAME: ${{ secrets.DOCKER_HUB_USERNAME }}
-  DOCKER_HUB_REPO: ${{ secrets.DOCKER_HUB_REPO || github.event.repository.name }}
+  DOCKER_HUB_REPO: ${{ secrets.DOCKER_HUB_REPO || lower(github.event.repository.name) }}
   IMAGE_TAG: ${{ github.sha }}
 
 jobs:
