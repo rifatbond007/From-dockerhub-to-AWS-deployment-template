@@ -1,0 +1,98 @@
+name: Rollback Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment to rollback'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - staging
+          - production
+      image-tag:
+        description: 'Docker image tag to rollback to (e.g., sha-<full-commit-sha>)'
+        required: true
+        type: string
+
+env:
+  DOCKER_HUB_USERNAME: ${{ secrets.DOCKER_HUB_USERNAME }}
+  DOCKER_HUB_REPO: ${{ secrets.DOCKER_HUB_REPO }}
+
+jobs:
+  rollback:
+    name: Rollback ${{ github.event.inputs.environment }} to ${{ github.event.inputs.image-tag }}
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set Docker repo name (lowercase)
+        if: env.DOCKER_HUB_REPO == ''
+        run: |
+          REPO="${GITHUB_REPOSITORY#*/}"
+          echo "DOCKER_HUB_REPO=${REPO,,}" >> $GITHUB_ENV
+
+      - name: Rollback via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: ${{ secrets.EC2_PORT || 22 }}
+          script: |
+            set -e
+
+            IMAGE="${{ env.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_HUB_REPO }}:${{ github.event.inputs.image-tag }}"
+            CONTAINER="${{ env.DOCKER_HUB_REPO }}"
+
+            # Save current image for re-rollback
+            PREV_IMAGE=$(docker inspect --format '{{.Config.Image}}' "$CONTAINER" 2>/dev/null || echo "")
+
+            echo "========================================="
+            echo "ROLLBACK: ${{ github.event.inputs.environment }}"
+            echo "Target image: $IMAGE"
+            echo "========================================="
+
+            echo "Pulling image: $IMAGE"
+            docker pull "$IMAGE"
+
+            echo "Stopping current container..."
+            docker container inspect "$CONTAINER" >/dev/null 2>&1 && \
+              docker stop "$CONTAINER" && \
+              docker rm "$CONTAINER" || true
+
+            echo "Starting container from: $IMAGE"
+            docker run -d \
+              --name "$CONTAINER" \
+              --restart unless-stopped \
+              -p 3000:3000 \
+              "$IMAGE"
+
+            echo "Running health check..."
+            sleep 5
+            HTTP_CODE=$(docker run --rm --network host curlimages/curl:8.7.1 -s -o /dev/null -w "%{http_code}" http://localhost:3000/health 2>/dev/null || echo "000")
+
+            if [ "$HTTP_CODE" != "200" ]; then
+              echo "! Health check FAILED (HTTP $HTTP_CODE). Rolling back to previous..."
+              docker stop "$CONTAINER" && docker rm "$CONTAINER" || true
+              if [ -n "$PREV_IMAGE" ]; then
+                echo "Restoring: $PREV_IMAGE"
+                docker pull "$PREV_IMAGE"
+                docker run -d \
+                  --name "$CONTAINER" \
+                  --restart unless-stopped \
+                  -p 3000:3000 \
+                  "$PREV_IMAGE"
+                echo "Rolled back to: $PREV_IMAGE"
+              else
+                echo "No previous image to restore. Container stopped."
+              fi
+              exit 1
+            fi
+
+            echo "Health check passed! Rollback successful."
+
+            docker image prune -af --filter "until=24h"
