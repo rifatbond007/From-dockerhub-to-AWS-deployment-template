@@ -99,7 +99,7 @@ jobs:
     if: github.ref == 'refs/heads/develop'
     environment:
       name: dev
-      url: http://dev.example.com
+      url: http://18.141.170.37:3000
     steps:
       - name: Set Docker repo name (lowercase)
         if: env.DOCKER_HUB_REPO == ''
