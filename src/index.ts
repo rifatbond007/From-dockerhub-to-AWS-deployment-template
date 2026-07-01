@@ -8,7 +8,7 @@ app.get('/health', (_req, res) => {
 });
 
 app.get('/', (_req, res) => {
-  res.json({ message: 'Hello from CI/CD pipeline!' });
+  res.json({ message: 'Hello from CI/CD pipeline — v2.0!' });
 });
 
 app.listen(PORT, () => {
